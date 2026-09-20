@@ -22,29 +22,17 @@ const eventSchema = {
         type: "object",
         properties: {
           title: { type: "string" },
-          kind: { type: "string" },
           organizer: { type: "string" },
           city: { type: "string" },
-          venue: { type: "string" },
           eventDate: { type: "string", description: "Exact event start date as YYYY-MM-DD" },
-          eventTime: { type: "string" },
-          deadline: { type: "string", description: "Exact registration deadline as YYYY-MM-DD or empty string if unavailable" },
-          mode: { type: "string" },
-          price: { type: "string" },
-          prize: { type: "string" },
-          team: { type: "string" },
-          eligibility: { type: "string" },
+          mode: { type: "string", description: "In person, Online, or Hybrid" },
           focus: { type: "string" },
-          duration: { type: "string" },
-          description: { type: "string" },
-          details: { type: "array", items: { type: "string" } },
-          tags: { type: "array", items: { type: "string" } },
           registrationUrl: { type: "string" },
           sourceUrl: { type: "string" },
-          sourceName: { type: "string" },
           factsVerified: { type: "boolean" },
+          summary: { type: "string", description: "Only source-stated details: venue, cost, prize, team size, eligibility, deadline, duration, and a concise event description. Leave unknown details out." },
         },
-        required: ["title", "kind", "organizer", "city", "eventDate", "mode", "price", "team", "focus", "description", "registrationUrl", "sourceUrl", "sourceName", "factsVerified"],
+        required: ["title", "organizer", "city", "eventDate", "mode", "focus", "registrationUrl", "sourceUrl", "factsVerified", "summary"],
       },
     },
   },
@@ -54,7 +42,6 @@ const eventSchema = {
 const validDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value || "");
 const validUrl = (value) => { try { return ["https:", "http:"].includes(new URL(value).protocol); } catch { return false; } };
 const clean = (value, maximum = 240) => typeof value === "string" ? value.trim().slice(0, maximum) : "";
-const list = (value) => Array.isArray(value) ? value.map((item) => clean(item, 180)).filter(Boolean).slice(0, 8) : [];
 const kinds = new Set(["Hackathon", "Workshop", "Competition", "Summit", "Program"]);
 const modes = new Set(["In person", "Online", "Hybrid"]);
 
@@ -65,37 +52,41 @@ function normalizedMode(value) {
   return "In person";
 }
 
+function sourceName(url) {
+  try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return "Official source"; }
+}
+
 function normalise(raw) {
   const eventDate = clean(raw.eventDate, 10);
   const registrationUrl = clean(raw.registrationUrl, 300);
   const sourceUrl = clean(raw.sourceUrl, 300);
-  const kind = kinds.has(clean(raw.kind, 30)) ? clean(raw.kind, 30) : "Competition";
+  const summary = clean(raw.summary, 1000);
   const event = {
     title: clean(raw.title, 100),
-    kind,
+    kind: kinds.has(clean(raw.kind, 30)) ? clean(raw.kind, 30) : "Competition",
     organizer: clean(raw.organizer, 100),
     city: clean(raw.city, 80),
-    venue: clean(raw.venue, 180) || "Venue to be confirmed",
+    venue: "See official source",
     eventDate,
-    eventTime: clean(raw.eventTime, 8),
-    deadline: validDate(clean(raw.deadline, 10)) ? clean(raw.deadline, 10) : "",
+    eventTime: "",
+    deadline: "",
     mode: modes.has(clean(raw.mode, 30)) ? clean(raw.mode, 30) : normalizedMode(raw.mode),
-    price: clean(raw.price, 80),
-    prize: clean(raw.prize, 100) || "Not listed",
-    team: clean(raw.team, 80),
-    eligibility: clean(raw.eligibility, 160) || "See official registration page",
+    price: "See official registration page",
+    prize: "Not listed",
+    team: "See official registration page",
+    eligibility: "See official registration page",
     focus: clean(raw.focus, 80),
-    duration: clean(raw.duration, 80) || "See official schedule",
-    description: clean(raw.description, 1000),
-    details: list(raw.details),
-    tags: list(raw.tags),
+    duration: "See official schedule",
+    description: summary,
+    details: summary ? [summary] : [],
+    tags: [clean(raw.focus, 40), "Verified"].filter(Boolean),
     registrationUrl,
     sourceUrl,
-    sourceName: clean(raw.sourceName, 100),
+    sourceName: sourceName(sourceUrl),
     sourceType: "primary",
     verificationStatus: "approved",
   };
-  const hasRequired = event.title && event.organizer && event.city && event.price && event.team && event.focus && event.description && event.sourceName;
+  const hasRequired = event.title && event.organizer && event.city && event.focus && event.description && event.sourceName;
   if (!raw.factsVerified || !hasRequired || !validDate(eventDate) || eventDate < todayIso || eventDate > endIso || !validUrl(registrationUrl) || !validUrl(sourceUrl)) return null;
   return event;
 }
@@ -118,7 +109,7 @@ async function search(query) {
       numResults: 10,
       userLocation: "IN",
       contents: { highlights: true },
-      systemPrompt: `Return only events that have an official organizer or reputable event-platform page. Do not infer or guess any field. An event can have factsVerified=true only when its exact event date, location/city, organizer, and registration URL are explicitly present in its linked source. Keep unknown fields empty. Search window: ${todayIso} through ${endIso}.`,
+      systemPrompt: `Return only events that have an official organizer or reputable event-platform page. Do not infer or guess any field. An event can have factsVerified=true only when its exact event date, location/city, organizer, and registration URL are explicitly present in its linked source. Keep unknown details out of the summary. Search window: ${todayIso} through ${endIso}.`,
       outputSchema: eventSchema,
     }),
   });
