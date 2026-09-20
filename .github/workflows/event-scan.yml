@@ -1,0 +1,25 @@
+name: Dev Radar event scan
+
+on:
+  schedule:
+    - cron: "17 */2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Discover and ingest verified opportunities
+        env:
+          EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
+          DEV_RADAR_INGEST_URL: ${{ secrets.DEV_RADAR_INGEST_URL }}
+          DEV_RADAR_INGEST_SECRET: ${{ secrets.DEV_RADAR_INGEST_SECRET }}
+        run: node src/scan.mjs
