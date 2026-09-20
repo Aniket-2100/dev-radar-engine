@@ -2,11 +2,19 @@ const required = ["EXA_API_KEY", "DEV_RADAR_INGEST_URL", "DEV_RADAR_INGEST_SECRE
 const missing = required.filter((key) => !process.env[key]);
 if (missing.length) throw new Error(`Missing GitHub secret(s): ${missing.join(", ")}`);
 
+const dateParts = (date) => {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(date);
+  return Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+};
+const asIndiaIso = (date) => {
+  const { year, month, day } = dateParts(date);
+  return `${year}-${month}-${day}`;
+};
 const today = new Date();
-const todayIso = today.toISOString().slice(0, 10);
+const todayIso = asIndiaIso(today);
 const end = new Date(today);
 end.setDate(end.getDate() + 60);
-const endIso = end.toISOString().slice(0, 10);
+const endIso = asIndiaIso(end);
 
 const queries = [
   `Official registration page for an upcoming hackathon, coding competition, developer workshop, AI or cloud event in Delhi NCR, Gurugram, Noida, Greater Noida, or New Delhi between ${todayIso} and ${endIso}. Include the exact date, venue and registration link.`,
