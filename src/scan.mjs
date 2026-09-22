@@ -35,7 +35,11 @@ const sourceLanes = [
     query: `Official registration page for an upcoming global or remote hackathon, developer challenge, cloud competition, data science competition, or student innovation competition between ${todayIso} and ${endIso}. Include the exact date or deadline, organizer, eligibility and registration link.`,
   },
 ];
-const activeLanes = scanScope === "expanded" ? sourceLanes : sourceLanes.slice(0, 2);
+const activeLanes = scanScope === "expanded"
+  ? sourceLanes
+  : scanScope === "global"
+    ? sourceLanes.slice(2)
+    : sourceLanes.slice(0, 2);
 const queries = activeLanes.map((lane) => lane.query);
 
 const eventSchema = {

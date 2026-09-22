@@ -6,7 +6,7 @@ A scheduled, source-backed event discovery runner for [Dev Radar](https://dev-ra
 
 Every two hours, GitHub Actions asks Exa for upcoming technology opportunities in Delhi NCR and across India. It only sends a record to Dev Radar when the source explicitly supports the date, organizer, location and registration link. Duplicate protection and expiry are handled by Dev Radar.
 
-The default `india` scan profile uses the Delhi NCR and India-wide lanes. Set the repository variable `DEV_RADAR_SCAN_SCOPE` to `expanded` only when you are ready to add the two global lanes (international programs and global hackathons). This doubles the number of Exa searches per two-hour run, so review your Exa plan first.
+The default `india` scan profile uses the Delhi NCR and India-wide lanes every two hours. A separate global workflow checks international programs and global hackathons once daily. The optional `expanded` profile runs every lane together and should be used only after reviewing the increased Exa usage.
 
 ## Required repository secrets
 
@@ -18,7 +18,7 @@ Add these under **Settings → Secrets and variables → Actions**:
 
 Optional repository variable:
 
-- `DEV_RADAR_SCAN_SCOPE` — use `expanded` to add global discovery lanes; omit it to keep the lower-cost India profile.
+- `DEV_RADAR_SCAN_SCOPE` — use `global` for the international-only lanes or `expanded` for every lane in one run; omit it for the India profile.
 
 The workflow can also be run manually from the **Actions** tab after the secrets are set.
 
