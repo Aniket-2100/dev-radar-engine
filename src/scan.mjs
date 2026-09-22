@@ -16,10 +16,27 @@ const end = new Date(today);
 end.setDate(end.getDate() + 60);
 const endIso = asIndiaIso(end);
 
-const queries = [
-  `Official registration page for an upcoming hackathon, coding competition, developer workshop, AI or cloud event in Delhi NCR, Gurugram, Noida, Greater Noida, or New Delhi between ${todayIso} and ${endIso}. Include the exact date, venue and registration link.`,
-  `Official registration page for an upcoming India-wide student technology competition, hackathon, robotics, esports, cloud, or open-source event between ${todayIso} and ${endIso}. Include exact date, city and registration link.`,
+const scanScope = (process.env.DEV_RADAR_SCAN_SCOPE || "india").trim().toLowerCase();
+const sourceLanes = [
+  {
+    id: "ncr",
+    query: `Official registration page for an upcoming hackathon, coding competition, developer workshop, AI or cloud event in Delhi NCR, Gurugram, Noida, Greater Noida, or New Delhi between ${todayIso} and ${endIso}. Include the exact date, venue and registration link.`,
+  },
+  {
+    id: "india",
+    query: `Official registration page for an upcoming India-wide student technology competition, hackathon, robotics, esports, cloud, or open-source event between ${todayIso} and ${endIso}. Include exact date, city and registration link.`,
+  },
+  {
+    id: "global-programs",
+    query: `Official application or registration page for an upcoming remote or international developer program, open-source mentorship, student technology competition, internship, fellowship, AI, cloud, cybersecurity, robotics, gaming, or coding opportunity open to applicants in India between ${todayIso} and ${endIso}. Include the exact deadline or event date, eligibility, organizer and application link.`,
+  },
+  {
+    id: "global-hackathons",
+    query: `Official registration page for an upcoming global or remote hackathon, developer challenge, cloud competition, data science competition, or student innovation competition between ${todayIso} and ${endIso}. Include the exact date or deadline, organizer, eligibility and registration link.`,
+  },
 ];
+const activeLanes = scanScope === "expanded" ? sourceLanes : sourceLanes.slice(0, 2);
+const queries = activeLanes.map((lane) => lane.query);
 
 const eventSchema = {
   type: "object",
@@ -30,10 +47,21 @@ const eventSchema = {
         type: "object",
         properties: {
           title: { type: "string" },
+          kind: { type: "string", description: "Hackathon, Workshop, Competition, Summit, or Program" },
           organizer: { type: "string" },
           city: { type: "string" },
+          venue: { type: "string" },
           eventDate: { type: "string", description: "Exact event start date as YYYY-MM-DD" },
+          eventTime: { type: "string" },
+          deadline: { type: "string", description: "Exact application or registration deadline as YYYY-MM-DD when stated" },
+          mode: { type: "string", description: "In person, Online, or Hybrid" },
+          price: { type: "string" },
+          prize: { type: "string" },
+          team: { type: "string" },
+          eligibility: { type: "string" },
+          duration: { type: "string" },
           focus: { type: "string" },
+          tags: { type: "array", items: { type: "string" } },
           registrationUrl: { type: "string" },
           sourceUrl: { type: "string" },
           factsVerified: { type: "boolean" },
@@ -49,6 +77,7 @@ const eventSchema = {
 const validDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value || "");
 const validUrl = (value) => { try { return ["https:", "http:"].includes(new URL(value).protocol); } catch { return false; } };
 const clean = (value, maximum = 240) => typeof value === "string" ? value.trim().slice(0, maximum) : "";
+const cleanList = (value, maximum = 8) => Array.isArray(value) ? value.map((item) => clean(item, 80)).filter(Boolean).slice(0, maximum) : [];
 const kinds = new Set(["Hackathon", "Workshop", "Competition", "Summit", "Program"]);
 const modes = new Set(["In person", "Online", "Hybrid"]);
 
@@ -63,30 +92,48 @@ function sourceName(url) {
   try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return "Official source"; }
 }
 
+function canonicalUrl(value) {
+  try {
+    const url = new URL(value);
+    url.hash = "";
+    ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "ref"].forEach((key) => url.searchParams.delete(key));
+    url.pathname = url.pathname.replace(/\/+$/, "") || "/";
+    return url.toString();
+  } catch { return value; }
+}
+
 function normalise(raw) {
   const eventDate = clean(raw.eventDate, 10);
-  const registrationUrl = clean(raw.registrationUrl, 300);
-  const sourceUrl = clean(raw.sourceUrl, 300);
+  const registrationUrl = canonicalUrl(clean(raw.registrationUrl, 300));
+  const sourceUrl = canonicalUrl(clean(raw.sourceUrl, 300));
   const summary = clean(raw.summary, 1000);
+  const deadline = clean(raw.deadline, 10);
+  const facts = [
+    clean(raw.venue, 180) && `Venue: ${clean(raw.venue, 180)}`,
+    deadline && `Deadline: ${deadline}`,
+    clean(raw.team, 80) && `Team: ${clean(raw.team, 80)}`,
+    clean(raw.eligibility, 160) && `Eligibility: ${clean(raw.eligibility, 160)}`,
+    clean(raw.price, 80) && `Cost: ${clean(raw.price, 80)}`,
+  ].filter(Boolean);
   const event = {
     title: clean(raw.title, 100),
     kind: kinds.has(clean(raw.kind, 30)) ? clean(raw.kind, 30) : "Competition",
     organizer: clean(raw.organizer, 100),
     city: clean(raw.city, 80),
-    venue: "See official source",
+    venue: clean(raw.venue, 180) || "See official source",
     eventDate,
-    eventTime: "",
-    deadline: "",
+    eventTime: clean(raw.eventTime, 8),
+    deadline: validDate(deadline) ? deadline : "",
     mode: modes.has(clean(raw.mode, 30)) ? clean(raw.mode, 30) : normalizedMode(raw.mode),
-    price: "See official registration page",
-    prize: "Not listed",
-    team: "See official registration page",
-    eligibility: "See official registration page",
+    price: clean(raw.price, 80) || "See official registration page",
+    prize: clean(raw.prize, 100) || "Not listed",
+    team: clean(raw.team, 80) || "See official registration page",
+    eligibility: clean(raw.eligibility, 160) || "See official registration page",
     focus: clean(raw.focus, 80),
-    duration: "See official schedule",
+    duration: clean(raw.duration, 80) || "See official schedule",
     description: summary,
-    details: summary ? [summary] : [],
-    tags: [clean(raw.focus, 40), "Verified"].filter(Boolean),
+    details: [...facts, ...(summary ? [summary] : [])].slice(0, 6),
+    tags: [...new Set([...cleanList(raw.tags), clean(raw.focus, 40), "Verified scan"])].filter(Boolean).slice(0, 8),
     registrationUrl,
     sourceUrl,
     sourceName: sourceName(sourceUrl),
@@ -94,7 +141,7 @@ function normalise(raw) {
     verificationStatus: "approved",
   };
   const hasRequired = event.title && event.organizer && event.city && event.focus && event.description && event.sourceName;
-  if (!raw.factsVerified || !hasRequired || !validDate(eventDate) || eventDate < todayIso || eventDate > endIso || !validUrl(registrationUrl) || !validUrl(sourceUrl)) return null;
+  if (!raw.factsVerified || !hasRequired || !validDate(eventDate) || eventDate < todayIso || eventDate > endIso || (deadline && !validDate(deadline)) || !validUrl(registrationUrl) || !validUrl(sourceUrl)) return null;
   return event;
 }
 
@@ -116,7 +163,7 @@ async function search(query) {
       numResults: 10,
       userLocation: "IN",
       contents: { highlights: true },
-      systemPrompt: `Return only events that have an official organizer or reputable event-platform page. Do not infer or guess any field. An event can have factsVerified=true only when its exact event date, location/city, organizer, and registration URL are explicitly present in its linked source. Keep unknown details out of the summary. Search window: ${todayIso} through ${endIso}.`,
+      systemPrompt: `Return only events that have an official organizer or reputable event-platform page. Do not infer or guess any field. An event can have factsVerified=true only when its exact event date, location/city, organizer, and registration URL are explicitly present in its linked source. Return kind, mode, venue, deadline, price, prize, team size, eligibility, duration and tags only when the linked source states them. Keep unknown values empty and keep the summary factual. Search window: ${todayIso} through ${endIso}.`,
       outputSchema: eventSchema,
     }),
   });
@@ -147,7 +194,7 @@ const response = await fetch(process.env.DEV_RADAR_INGEST_URL, {
     scan: {
       status: "success",
       sourcesChecked: queries.length,
-      note: `Exa scan completed: ${events.length} source-backed upcoming event record(s) passed publication checks.`,
+      note: `Exa ${scanScope === "expanded" ? "expanded global" : "India"} scan completed: ${events.length} source-backed upcoming event record(s) passed publication checks across ${activeLanes.map((lane) => lane.id).join(", ")}.`,
     },
   }),
 });
