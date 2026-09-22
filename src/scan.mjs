@@ -12,11 +12,14 @@ const asIndiaIso = (date) => {
 };
 const today = new Date();
 const todayIso = asIndiaIso(today);
+const scanScope = (process.env.DEV_RADAR_SCAN_SCOPE || "india").trim().toLowerCase();
+// India changes quickly, so keep that feed tight. Global programmes such as
+// NASA challenges and fellowships are announced much further in advance.
+const horizonDays = scanScope === "global" || scanScope === "expanded" ? 180 : 60;
 const end = new Date(today);
-end.setDate(end.getDate() + 60);
+end.setDate(end.getDate() + horizonDays);
 const endIso = asIndiaIso(end);
 
-const scanScope = (process.env.DEV_RADAR_SCAN_SCOPE || "india").trim().toLowerCase();
 const sourceLanes = [
   {
     id: "ncr",
@@ -28,11 +31,11 @@ const sourceLanes = [
   },
   {
     id: "global-programs",
-    query: `Official application or registration page for an upcoming remote or international developer program, open-source mentorship, student technology competition, internship, fellowship, AI, cloud, cybersecurity, robotics, gaming, or coding opportunity open to applicants in India between ${todayIso} and ${endIso}. Include the exact deadline or event date, eligibility, organizer and application link.`,
+    query: `Official application or registration page for an upcoming remote or international developer program, open-source mentorship, student technology competition, internship, fellowship, AI, cloud, cybersecurity, robotics, gaming, coding, space technology, astronomy, aerospace, satellite, Earth observation, or NASA, ESA, ISRO or space-agency opportunity open to applicants in India between ${todayIso} and ${endIso}. Include the exact deadline or event date, eligibility, organizer and application link.`,
   },
   {
     id: "global-hackathons",
-    query: `Official registration page for an upcoming global or remote hackathon, developer challenge, cloud competition, data science competition, or student innovation competition between ${todayIso} and ${endIso}. Include the exact date or deadline, organizer, eligibility and registration link.`,
+    query: `Official registration page for an upcoming global or remote hackathon, developer challenge, cloud, data science, robotics, gaming, astronomy, aerospace, space-tech, satellite, or student innovation competition between ${todayIso} and ${endIso}. Include the exact date or deadline, organizer, eligibility and registration link.`,
   },
 ];
 const activeLanes = scanScope === "expanded"
@@ -51,7 +54,7 @@ const eventSchema = {
         type: "object",
         properties: {
           title: { type: "string" },
-          kind: { type: "string", description: "Hackathon, Workshop, Competition, Summit, or Program" },
+          kind: { type: "string", description: "Hackathon, Workshop, Competition, Summit, Program, Fellowship, or Internship" },
           organizer: { type: "string" },
           city: { type: "string" },
           venue: { type: "string" },
@@ -82,7 +85,7 @@ const validDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value || "");
 const validUrl = (value) => { try { return ["https:", "http:"].includes(new URL(value).protocol); } catch { return false; } };
 const clean = (value, maximum = 240) => typeof value === "string" ? value.trim().slice(0, maximum) : "";
 const cleanList = (value, maximum = 8) => Array.isArray(value) ? value.map((item) => clean(item, 80)).filter(Boolean).slice(0, maximum) : [];
-const kinds = new Set(["Hackathon", "Workshop", "Competition", "Summit", "Program"]);
+const kinds = new Set(["Hackathon", "Workshop", "Competition", "Summit", "Program", "Fellowship", "Internship"]);
 const modes = new Set(["In person", "Online", "Hybrid"]);
 
 function normalizedMode(value) {
@@ -198,7 +201,7 @@ const response = await fetch(process.env.DEV_RADAR_INGEST_URL, {
     scan: {
       status: "success",
       sourcesChecked: queries.length,
-      note: `Exa ${scanScope === "expanded" ? "expanded global" : "India"} scan completed: ${events.length} source-backed upcoming event record(s) passed publication checks across ${activeLanes.map((lane) => lane.id).join(", ")}.`,
+      note: `Exa ${scanScope === "expanded" ? "expanded" : scanScope} scan completed: ${events.length} source-backed upcoming event record(s) passed publication checks across ${activeLanes.map((lane) => lane.id).join(", ")} (next ${horizonDays} days).`,
     },
   }),
 });

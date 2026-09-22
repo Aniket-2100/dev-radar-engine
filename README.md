@@ -6,7 +6,7 @@ A scheduled, source-backed event discovery runner for [Dev Radar](https://dev-ra
 
 Every two hours, GitHub Actions asks Exa for upcoming technology opportunities in Delhi NCR and across India. It only sends a record to Dev Radar when the source explicitly supports the date, organizer, location and registration link. Duplicate protection and expiry are handled by Dev Radar.
 
-The default `india` scan profile uses the Delhi NCR and India-wide lanes every two hours. A separate global workflow checks international programs and global hackathons once daily. The optional `expanded` profile runs every lane together and should be used only after reviewing the increased Exa usage.
+The default `india` scan profile uses the Delhi NCR and India-wide lanes every two hours. A separate global workflow checks international programs, global hackathons, space technology, astronomy, aerospace and space-agency opportunities (including NASA, ESA and ISRO listings where eligibility allows) once daily. India scans cover the next 60 days; the daily global scan looks up to 180 days ahead because international programs are usually announced earlier. The optional `expanded` profile runs every lane together and should be used only after reviewing the increased Exa usage.
 
 ## Required repository secrets
 
