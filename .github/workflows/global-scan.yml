@@ -2,7 +2,7 @@ name: Dev Radar global opportunity scan
 
 on:
   schedule:
-    - cron: "47 4 * * *"
+    - cron: "47 4,16 * * *"
   workflow_dispatch:
 
 permissions:
@@ -17,6 +17,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Test scan and verification rules
+        run: node --test test/*.test.mjs
       - name: Discover and ingest global opportunities
         env:
           EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
