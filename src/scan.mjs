@@ -30,12 +30,20 @@ const sourceLanes = [
     query: `Official registration page for an upcoming India-wide student technology competition, hackathon, robotics, esports, cloud, or open-source event between ${todayIso} and ${endIso}. Include exact date, city and registration link.`,
   },
   {
-    id: "global-programs",
-    query: `Official application or registration page for an upcoming remote or international developer program, open-source mentorship, student technology competition, internship, fellowship, AI, cloud, cybersecurity, robotics, gaming, coding, space technology, astronomy, aerospace, satellite, Earth observation, or NASA, ESA, ISRO or space-agency opportunity open to applicants in India between ${todayIso} and ${endIso}. Include the exact deadline or event date, eligibility, organizer and application link.`,
+    id: "global-internships",
+    query: `Official employer careers or application page for a software engineering, AI, data, cybersecurity or developer internship accepting applications between ${todayIso} and ${endIso}. Include the exact application deadline where given, country restrictions, eligibility and application link. Search international and India-based employers, not generic internship roundups.`,
   },
   {
     id: "global-hackathons",
-    query: `Official registration page for an upcoming global or remote hackathon, developer challenge, cloud, data science, robotics, gaming, astronomy, aerospace, space-tech, satellite, or student innovation competition between ${todayIso} and ${endIso}. Include the exact date or deadline, organizer, eligibility and registration link.`,
+    query: `Official organizer or Devpost registration page for an international online hackathon, coding competition, developer challenge, cloud, data science, robotics or gaming event between ${todayIso} and ${endIso}. Include exact dates, organizer, eligibility and registration URL; exclude expired editions.`,
+  },
+  {
+    id: "global-student",
+    query: `Official organizer registration page for a global university or school student coding, AI, cybersecurity, open-source or research competition between ${todayIso} and ${endIso}. Include team size, registration deadline, exact event dates and official link.`,
+  },
+  {
+    id: "global-space",
+    query: `Official NASA, ESA, space agency or event organizer registration page for a space, astronomy, Earth observation, satellite or robotics hackathon or challenge between ${todayIso} and ${endIso}. Include exact event dates, eligibility and official registration link.`,
   },
 ];
 const activeLanes = scanScope === "expanded"
@@ -43,8 +51,6 @@ const activeLanes = scanScope === "expanded"
   : scanScope === "global"
     ? sourceLanes.slice(2)
     : sourceLanes.slice(0, 2);
-const queries = activeLanes.map((lane) => lane.query);
-
 const eventSchema = {
   type: "object",
   properties: {
@@ -54,39 +60,25 @@ const eventSchema = {
         type: "object",
         properties: {
           title: { type: "string" },
-          kind: { type: "string", description: "Hackathon, Workshop, Competition, Summit, Program, Fellowship, or Internship" },
           organizer: { type: "string" },
           city: { type: "string" },
-          venue: { type: "string" },
-          eventDate: { type: "string", description: "Exact event start date as YYYY-MM-DD" },
-          eventTime: { type: "string" },
+          eventDate: { type: "string", description: "Exact event start date as YYYY-MM-DD; for internships with no exact start, use the application deadline as this date and explain that in summary" },
+          endDate: { type: "string", description: "Exact final day as YYYY-MM-DD if a multi-day event" },
           deadline: { type: "string", description: "Exact application or registration deadline as YYYY-MM-DD when stated" },
-          mode: { type: "string", description: "In person, Online, or Hybrid" },
-          price: { type: "string" },
-          prize: { type: "string" },
-          team: { type: "string" },
-          eligibility: { type: "string" },
-          duration: { type: "string" },
-          focus: { type: "string" },
-          tags: { type: "array", items: { type: "string" } },
           registrationUrl: { type: "string" },
           sourceUrl: { type: "string" },
-          factsVerified: { type: "boolean" },
-          summary: { type: "string", description: "Only source-stated details: venue, cost, prize, team size, eligibility, deadline, duration, and a concise event description. Leave unknown details out." },
+          summary: { type: "string", description: "Concise source-stated description including location restrictions, eligibility, venue, cost and team size only if stated. No guesses." },
         },
-        required: ["title", "organizer", "city", "eventDate", "focus", "registrationUrl", "sourceUrl", "factsVerified", "summary"],
+        required: ["title", "organizer", "city", "eventDate", "registrationUrl", "sourceUrl", "summary"],
       },
     },
   },
   required: ["events"],
 };
 
-const validDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value || "");
 const validUrl = (value) => { try { return ["https:", "http:"].includes(new URL(value).protocol); } catch { return false; } };
 const clean = (value, maximum = 240) => typeof value === "string" ? value.trim().slice(0, maximum) : "";
-const cleanList = (value, maximum = 8) => Array.isArray(value) ? value.map((item) => clean(item, 80)).filter(Boolean).slice(0, maximum) : [];
 const kinds = new Set(["Hackathon", "Workshop", "Competition", "Summit", "Program", "Fellowship", "Internship"]);
-const modes = new Set(["In person", "Online", "Hybrid"]);
 
 function normalizedMode(value) {
   const lower = clean(value).toLowerCase();
@@ -99,56 +91,46 @@ function sourceName(url) {
   try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return "Official source"; }
 }
 
-function canonicalUrl(value) {
-  try {
-    const url = new URL(value);
-    url.hash = "";
-    ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "ref"].forEach((key) => url.searchParams.delete(key));
-    url.pathname = url.pathname.replace(/\/+$/, "") || "/";
-    return url.toString();
-  } catch { return value; }
-}
-
-function normalise(raw) {
+function normalise(raw, lane, source, searchUrls) {
   const eventDate = clean(raw.eventDate, 10);
+  const endDate = clean(raw.endDate, 10);
   const registrationUrl = canonicalUrl(clean(raw.registrationUrl, 300));
   const sourceUrl = canonicalUrl(clean(raw.sourceUrl, 300));
   const summary = clean(raw.summary, 1000);
   const deadline = clean(raw.deadline, 10);
-  const facts = [
-    clean(raw.venue, 180) && `Venue: ${clean(raw.venue, 180)}`,
-    deadline && `Deadline: ${deadline}`,
-    clean(raw.team, 80) && `Team: ${clean(raw.team, 80)}`,
-    clean(raw.eligibility, 160) && `Eligibility: ${clean(raw.eligibility, 160)}`,
-    clean(raw.price, 80) && `Cost: ${clean(raw.price, 80)}`,
-  ].filter(Boolean);
+  const kind = lane.id === "global-internships" ? "Internship" : /hackathon|hack/i.test(raw.title) ? "Hackathon" : /workshop/i.test(raw.title) ? "Workshop" : /summit/i.test(raw.title) ? "Summit" : "Competition";
+  const mode = normalizedMode(`${raw.city} ${summary}`);
+  const focus = lane.id === "global-space" ? "Space & astronomy" : lane.id === "global-internships" ? "Tech internship" : /robot/i.test(summary) ? "Robotics" : /cloud/i.test(summary) ? "Cloud" : /AI|machine learning/i.test(summary) ? "AI / ML" : "Technology";
+  const expiry = kind === "Internship" ? deadline || eventDate : endDate || eventDate;
+  const dateWithinHorizon = eventDate <= endIso || (deadline && deadline <= endIso);
+  if (!raw.title || !raw.organizer || !raw.city || !summary || !validDate(eventDate) || (endDate && (!validDate(endDate) || endDate < eventDate)) || (deadline && (!validDate(deadline) || deadline < todayIso)) || expiry < todayIso || !dateWithinHorizon || !validUrl(registrationUrl) || !validUrl(sourceUrl)) return null;
+  const verified = verifySource({ ...raw, eventDate, endDate, deadline, sourceUrl, registrationUrl }, source, searchUrls);
   const event = {
     title: clean(raw.title, 100),
-    kind: kinds.has(clean(raw.kind, 30)) ? clean(raw.kind, 30) : "Competition",
+    kind: kinds.has(kind) ? kind : "Competition",
     organizer: clean(raw.organizer, 100),
     city: clean(raw.city, 80),
-    venue: clean(raw.venue, 180) || "See official source",
+    venue: mode === "Online" ? "Online · see official source" : "See official source for venue",
     eventDate,
-    eventTime: clean(raw.eventTime, 8),
+    eventTime: "",
     deadline: validDate(deadline) ? deadline : "",
-    mode: modes.has(clean(raw.mode, 30)) ? clean(raw.mode, 30) : normalizedMode(raw.mode),
-    price: clean(raw.price, 80) || "See official registration page",
-    prize: clean(raw.prize, 100) || "Not listed",
-    team: clean(raw.team, 80) || "See official registration page",
-    eligibility: clean(raw.eligibility, 160) || "See official registration page",
-    focus: clean(raw.focus, 80),
-    duration: clean(raw.duration, 80) || "See official schedule",
+    mode,
+    price: "See official registration page",
+    prize: "Not listed",
+    team: "See official rules",
+    eligibility: "See official rules and location restrictions",
+    focus,
+    duration: endDate ? `${eventDate} to ${endDate}` : "See official schedule",
     description: summary,
-    details: [...facts, ...(summary ? [summary] : [])].slice(0, 6),
-    tags: [...new Set([...cleanList(raw.tags), clean(raw.focus, 40), "Verified scan"])].filter(Boolean).slice(0, 8),
+    details: [summary, deadline ? `Registration deadline: ${deadline}` : "Check the official page for the current registration status."],
+    tags: [focus, kind, lane.id.replaceAll("-", " ")],
     registrationUrl,
     sourceUrl,
     sourceName: sourceName(sourceUrl),
-    sourceType: "primary",
-    verificationStatus: "approved",
+    sourceType: "source-backed",
+    verificationStatus: verified ? "approved" : "pending",
+    expiresAt: expiry,
   };
-  const hasRequired = event.title && event.organizer && event.city && event.focus && event.description && event.sourceName;
-  if (!raw.factsVerified || !hasRequired || !validDate(eventDate) || eventDate < todayIso || eventDate > endIso || (deadline && !validDate(deadline)) || !validUrl(registrationUrl) || !validUrl(sourceUrl)) return null;
   return event;
 }
 
@@ -160,32 +142,53 @@ function parseStructuredOutput(payload) {
   return output && typeof output === "object" ? output : { events: [] };
 }
 
-async function search(query) {
+async function search(lane) {
   const response = await fetch("https://api.exa.ai/search", {
     method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${process.env.EXA_API_KEY}` },
+    headers: { "Content-Type": "application/json", "x-api-key": process.env.EXA_API_KEY },
     body: JSON.stringify({
-      query,
+      query: lane.query,
       type: "deep-lite",
-      numResults: 10,
+      numResults: 15,
       userLocation: "IN",
       contents: { highlights: true },
-      systemPrompt: `Return only events that have an official organizer or reputable event-platform page. Do not infer or guess any field. An event can have factsVerified=true only when its exact event date, location/city, organizer, and registration URL are explicitly present in its linked source. Return kind, mode, venue, deadline, price, prize, team size, eligibility, duration and tags only when the linked source states them. Keep unknown values empty and keep the summary factual. Search window: ${todayIso} through ${endIso}.`,
+      systemPrompt: `Return only live opportunities supported by one official organizer, official careers, or organizer-controlled event-platform page among the search results. Do not invent URLs, dates or facts. eventDate must be the exact event start; if an internship has no exact start date but has a stated application deadline, use that deadline as eventDate and say so in summary. Include exact endDate and deadline only when stated. Summarize eligibility, location restrictions, mode, venue and cost only when stated on that page. Search window: ${todayIso} through ${endIso}.`,
       outputSchema: eventSchema,
     }),
   });
   if (!response.ok) throw new Error(`Exa search failed: ${response.status} ${await response.text()}`);
-  return parseStructuredOutput(await response.json());
+  const payload = await response.json();
+  return { lane, candidates: parseStructuredOutput(payload).events || [], searchUrls: new Set((payload.results || []).map((result) => canonicalUrl(result.url))) };
 }
 
-const outcomes = await Promise.all(queries.map(search));
+async function fetchSources(urls) {
+  const sourceMap = new Map();
+  for (let index = 0; index < urls.length; index += 10) {
+    const response = await fetch("https://api.exa.ai/contents", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": process.env.EXA_API_KEY },
+      body: JSON.stringify({ urls: urls.slice(index, index + 10), text: true }),
+    });
+    if (!response.ok) throw new Error(`Exa source check failed: ${response.status} ${await response.text()}`);
+    const payload = await response.json();
+    for (const result of payload.results || []) sourceMap.set(canonicalUrl(result.url), result);
+  }
+  return sourceMap;
+}
+
+const settled = await Promise.allSettled(activeLanes.map(search));
+const outcomes = settled.filter((result) => result.status === "fulfilled").map((result) => result.value);
+const failures = settled.filter((result) => result.status === "rejected").map((result) => String(result.reason?.message || result.reason));
+if (!outcomes.length) throw new Error(`Every scan lane failed: ${failures.join(" | ")}`);
+const sourceUrls = [...new Set(outcomes.flatMap((outcome) => outcome.candidates.map((candidate) => canonicalUrl(candidate.sourceUrl)).filter((url) => validUrl(url) && outcome.searchUrls.has(url))))].slice(0, 50);
+const sources = await fetchSources(sourceUrls);
 const deduped = new Map();
 for (const outcome of outcomes) {
-  for (const raw of Array.isArray(outcome.events) ? outcome.events : []) {
-    const event = normalise(raw);
+  for (const raw of Array.isArray(outcome.candidates) ? outcome.candidates : []) {
+    const event = normalise(raw, outcome.lane, sources.get(canonicalUrl(raw.sourceUrl)), outcome.searchUrls);
     if (!event) continue;
     const key = `${event.registrationUrl.toLowerCase()}|${event.eventDate}`;
-    deduped.set(key, event);
+    if (!deduped.has(key) || event.verificationStatus === "approved") deduped.set(key, event);
   }
 }
 
@@ -199,11 +202,13 @@ const response = await fetch(process.env.DEV_RADAR_INGEST_URL, {
   body: JSON.stringify({
     events,
     scan: {
-      status: "success",
-      sourcesChecked: queries.length,
-      note: `Exa ${scanScope === "expanded" ? "expanded" : scanScope} scan completed: ${events.length} source-backed upcoming event record(s) passed publication checks across ${activeLanes.map((lane) => lane.id).join(", ")} (next ${horizonDays} days).`,
+      status: failures.length ? "error" : "success",
+      sourcesChecked: outcomes.length,
+      note: `Exa ${scanScope} scan: ${events.filter((event) => event.verificationStatus === "approved").length} verified, ${events.filter((event) => event.verificationStatus === "pending").length} pending across ${outcomes.map((outcome) => outcome.lane.id).join(", ")}; ${failures.length} lane failure(s).`,
     },
   }),
 });
 if (!response.ok) throw new Error(`Dev Radar ingest failed: ${response.status} ${await response.text()}`);
 console.log(JSON.stringify({ scannedAt: new Date().toISOString(), discovered: events.length, ingest: await response.json() }, null, 2));
+import { canonicalUrl, validDate, verifySource } from "./verify.mjs";
+
